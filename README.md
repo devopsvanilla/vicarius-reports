@@ -27,8 +27,8 @@ pip install -r requirements.txt
 
 cp .env-sample .env
 
-# Altere no nano para a sua API e URL
-nano .env
+# Edite o arquivo .env com sua API e URL (opcionalmente com $EDITOR)
+${EDITOR:-vi} .env
 
 # Execute os scripts nessa ordem
 python3 get_endpoint_so.py
