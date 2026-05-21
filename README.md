@@ -31,6 +31,9 @@ Para executar os scripts nesta estação (Linux), certifique-se de ter:
 ## Execução
 
 ```shell
+git clone https://github.com/loonar-morpheus-sysint/vicarius-reports.git
+cd vicarius-reports
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
