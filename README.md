@@ -18,6 +18,16 @@
 | `get_active_cve.py`         | Coleta CVEs ativas, enriquece status Ubuntu e gera relatório final | `.env`, `reports/endpoint_so.jsonl`, `reports/oval/*.xml` | `reports/active_cve.jsonl`, `reports/active_cve.xlsx`, `reports/active_cve.csv`, `reports/ubuntu_oval_cache.jsonl` |
 | `get_ubuntu_oval_status.py` | Resolve status de CVE em OVAL/API Ubuntu (uso técnico)             | `--ubuntu`, `--cve`, `--pkg`                              | JSON em stdout                                                                                                             |
 
+## Pré-requisitos
+
+Para executar os scripts nesta estação (Linux), certifique-se de ter:
+
+- **Sistema Operacional:** Linux (ambiente de terminal Bash/Zsh).
+- **Python 3:** Instalado no sistema.
+- **Módulo venv:** Necessário para o isolamento das bibliotecas (em distros Debian/Ubuntu, instalável via `sudo apt install python3-venv`).
+- **Acesso à rede:** Para o download dos feeds OVAL Ubuntu e comunicação com a API do Vicarius.
+- **Credenciais do Vicarius:** URL Base e chave de API para o arquivo de configuração `.env`.
+
 ## Execução
 
 ```shell
