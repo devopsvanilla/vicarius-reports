@@ -222,3 +222,5 @@ __marimo__/
 .env
 reports/
 cache/
+# Added by ggshield
+.cache_ggshield

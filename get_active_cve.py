@@ -6,8 +6,11 @@ import os
 import sys
 import time
 import argparse
+import mimetypes
+import smtplib
 from collections import defaultdict
 from datetime import datetime
+from email.message import EmailMessage
 from openpyxl import Workbook, load_workbook
 from openpyxl.chart import PieChart, Reference
 from openpyxl.chart.label import DataLabelList
@@ -64,6 +67,129 @@ def get_vicarius_credentials():
         sys.exit(1)
         
     return base_url.rstrip("/"), api_key
+
+
+def parse_bool_env(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'y', 'on', 'sim', 's')
+
+
+def get_email_settings():
+    enabled = parse_bool_env(os.environ.get('VRX_EMAIL_ENABLED'), default=False)
+    if not enabled:
+        return None
+
+    smtp_host = os.environ.get('VRX_SMTP_HOST', '').strip()
+    smtp_port_raw = os.environ.get('VRX_SMTP_PORT', '587').strip()
+    smtp_user = os.environ.get('VRX_SMTP_USER', '').strip()
+    smtp_password = os.environ.get('VRX_SMTP_PASSWORD', '')
+    mail_from = os.environ.get('VRX_EMAIL_FROM', '').strip()
+    mail_to_raw = os.environ.get('VRX_EMAIL_TO', '').strip()
+    subject = os.environ.get(
+        'VRX_EMAIL_SUBJECT',
+        f"Relatorio de Vulnerabilidades Ativas - {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+    ).strip()
+    body = os.environ.get(
+        'VRX_EMAIL_BODY',
+        'Segue em anexo o relatorio de vulnerabilidades ativas (XLSX e CSV).'
+    )
+
+    required = {
+        'VRX_SMTP_HOST': smtp_host,
+        'VRX_SMTP_PORT': smtp_port_raw,
+        'VRX_EMAIL_FROM': mail_from,
+        'VRX_EMAIL_TO': mail_to_raw,
+    }
+    missing = [k for k, v in required.items() if not v]
+    if missing:
+        print(
+            f"[AVISO] Envio de e-mail habilitado, mas faltam variaveis obrigatorias: {', '.join(missing)}. "
+            "Pulando envio."
+        )
+        return None
+
+    try:
+        smtp_port = int(smtp_port_raw)
+    except ValueError:
+        print(f"[AVISO] VRX_SMTP_PORT invalida: '{smtp_port_raw}'. Pulando envio de e-mail.")
+        return None
+
+    recipients = [addr.strip() for addr in mail_to_raw.split(',') if addr.strip()]
+    if not recipients:
+        print('[AVISO] Nenhum destinatario valido em VRX_EMAIL_TO. Pulando envio de e-mail.')
+        return None
+
+    return {
+        'smtp_host': smtp_host,
+        'smtp_port': smtp_port,
+        'smtp_user': smtp_user,
+        'smtp_password': smtp_password,
+        'mail_from': mail_from,
+        'recipients': recipients,
+        'subject': subject,
+        'body': body,
+        'use_ssl': parse_bool_env(os.environ.get('VRX_SMTP_USE_SSL'), default=False),
+        'use_starttls': parse_bool_env(os.environ.get('VRX_SMTP_USE_STARTTLS'), default=True),
+    }
+
+
+def send_report_email(attachments):
+    settings = get_email_settings()
+    if settings is None:
+        return
+
+    msg = EmailMessage()
+    msg['From'] = settings['mail_from']
+    msg['To'] = ', '.join(settings['recipients'])
+    msg['Subject'] = settings['subject']
+    msg.set_content(settings['body'])
+
+    attached_count = 0
+    for file_path in attachments:
+        if not file_path or not os.path.exists(file_path):
+            print(f"[AVISO] Anexo nao encontrado: {file_path}")
+            continue
+
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if mime_type:
+            maintype, subtype = mime_type.split('/', 1)
+        else:
+            maintype, subtype = 'application', 'octet-stream'
+
+        with open(file_path, 'rb') as f:
+            msg.add_attachment(
+                f.read(),
+                maintype=maintype,
+                subtype=subtype,
+                filename=os.path.basename(file_path)
+            )
+        attached_count += 1
+
+    if attached_count == 0:
+        print('[AVISO] Nenhum anexo valido para envio. Pulando envio de e-mail.')
+        return
+
+    try:
+        if settings['use_ssl']:
+            smtp_conn = smtplib.SMTP_SSL(settings['smtp_host'], settings['smtp_port'], timeout=30)
+        else:
+            smtp_conn = smtplib.SMTP(settings['smtp_host'], settings['smtp_port'], timeout=30)
+
+        with smtp_conn as server:
+            server.ehlo()
+            if (not settings['use_ssl']) and settings['use_starttls']:
+                server.starttls()
+                server.ehlo()
+
+            if settings['smtp_user'] or settings['smtp_password']:
+                server.login(settings['smtp_user'], settings['smtp_password'])
+
+            server.send_message(msg)
+
+        print(f"[SUCESSO] E-mail enviado para {', '.join(settings['recipients'])} com {attached_count} anexo(s).")
+    except Exception as e:
+        print(f"[ERRO] Falha ao enviar e-mail: {e}")
 
 def fetch_all_with_seek(base_url, headers):
     url = f"{base_url}/vicarius-external-data-api/aggregation/searchGroup"
@@ -169,7 +295,7 @@ def fetch_all_with_seek(base_url, headers):
         print(f"[PROGRESS] {total_coletado} CVEs coletadas (último patch/vuln_id: {last_id})")
 
         if len(items) < MAX_SIZE:
-             break
+            break
 
         page_num += 1
         time.sleep(REQUEST_DELAY_SECONDS)
@@ -772,6 +898,8 @@ def main():
                 for v in row
             ])
     print(f"[SUCESSO] CSV '{csv_file}' gerado.")
+
+    send_report_email([excel_file, csv_file])
 
 if __name__ == "__main__":
     main()
